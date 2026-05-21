@@ -1,0 +1,14 @@
+{
+  "name": "custom-taschen-konfigurator",
+  "version": "1.2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "dotenv": "latest",
+    "express": "latest",
+    "nodemailer": "latest"
+  }
+}
