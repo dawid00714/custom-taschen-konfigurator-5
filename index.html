@@ -19,8 +19,6 @@
 <script>
 const RAW='https://raw.githubusercontent.com/dawid00714/custom-taschen-konfigurator-5/main/';
 const BAG_TYPES=[{id:'bag1',name:'Shoulder Bag',file:RAW+'bag-1.png'},{id:'bag2',name:'Bucket Bag',file:RAW+'bag-2.png'},{id:'bag3',name:'Hobo Bag',file:RAW+'bag-3.png'},{id:'bag4',name:'Tote Bag',file:RAW+'bag-4.png'},{id:'bag5',name:'Satchel Bag',file:RAW+'bag-5.png'}];
-const CLOUD_NAME='da5yesq5l';
-const PRESETS=['Laminimas-custom-Bags','laminimas_unsigned'];
 const WHATSAPP='4917629390147';
 let selectedBag=BAG_TYPES[0],uploadDataUrl=null,generatedImageUrl=null;
 const $=id=>document.getElementById(id);
@@ -37,7 +35,12 @@ $('imageUpload').onchange=async e=>{const f=e.target.files&&e.target.files[0];if
 ['material','customText','letterStyle','letterPosition'].forEach(id=>$(id).addEventListener('input',update));
 $('generateBtn').onclick=async()=>{const prompt=$('prompt').value.trim();setLoading(true);$('sumStatus').textContent='Wird generiert';try{const res=await fetch('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({bagType:selectedBag.name,silhouetteImage:await bagDataUrl(selectedBag),prompt,material:$('material').value,background:'Komplett weißer Studio-Hintergrund',customText:custom(),letterStyle:$('letterStyle').value,letterPosition:$('letterPosition').value,referenceImage:uploadDataUrl})});const data=await res.json();if(!res.ok)throw new Error(data.error||'Fehler');generatedImageUrl=data.imageUrl;$('resultBox').innerHTML='<img src="'+generatedImageUrl+'" alt="KI Vorschau">';$('sumStatus').textContent='Vorschau erstellt';$('buyBtn').disabled=false;$('downloadBtn').disabled=false}catch(e){$('resultBox').innerHTML='<div>Fehler: '+e.message+'</div>';$('sumStatus').textContent='Fehler'}finally{setLoading(false)}};
 $('downloadBtn').onclick=()=>{if(!generatedImageUrl)return;const a=document.createElement('a');a.href=generatedImageUrl;a.download='custom-tasche-vorschau.png';a.click()};
-async function uploadToCloudinary(image){let last='';for(const preset of PRESETS){try{const form=new FormData();form.append('file',image);form.append('upload_preset',preset);const r=await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`,{method:'POST',body:form});const d=await r.json().catch(()=>({}));if(r.ok&&d.secure_url)return d.secure_url;last=`${preset}: ${d.error?.message||r.status}`}catch(e){last=`${preset}: ${e.message}`}}throw new Error(last||'Cloudinary Upload fehlgeschlagen')}
+async function uploadToCloudinary(image){
+  const response=await fetch('/api/upload-image',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({image})});
+  const data=await response.json().catch(()=>({}));
+  if(!response.ok||!data.imageUrl)throw new Error(data.error||'Cloudinary Upload fehlgeschlagen');
+  return data.imageUrl;
+}
 function wa(link){const msg='Neue Custom-Taschen-Anfrage\n\nForm: '+selectedBag.name+'\nMaterial: '+$('material').value+'\nBuchstaben/Wörter: '+(custom()||'-')+'\nText-Stil: '+styleLabel($('letterStyle').value)+'\nText-Position: '+posLabel($('letterPosition').value)+'\nDesignwunsch: '+($('prompt').value||'-')+'\n\nBild-Link: '+(link||'kein Bild-Link, bitte Vorschau manuell senden');return 'https://wa.me/'+WHATSAPP+'?text='+encodeURIComponent(msg)}
 $('buyBtn').onclick=async()=>{if(!generatedImageUrl){toast('Bitte erst eine KI-Vorschau generieren.');return}const old=$('buyBtn').textContent;$('buyBtn').disabled=true;$('buyBtn').innerHTML='<span class="spinner"></span>Erstelle Bild-Link...';try{location.href=wa(await uploadToCloudinary(generatedImageUrl))}catch(e){toast('Cloudinary: '+e.message+' | WhatsApp öffnet ohne Bild-Link.');location.href=wa('')}finally{$('buyBtn').disabled=false;$('buyBtn').textContent=old}};
 $('clearBtn').onclick=()=>location.reload();
