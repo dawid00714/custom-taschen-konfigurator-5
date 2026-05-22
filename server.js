@@ -22,9 +22,10 @@ function sendIndex(req, res) {
   let html = fs.readFileSync(filePath, 'utf8');
 
   html = html
-    .replace(/ab\s*299\s*€/gi, 'Auf Anfrage')
-    .replace(/ab\s*&nbsp;\s*299\s*€/gi, 'Auf Anfrage')
-    .replace(/<div class="price">[\s\S]*?<\/div>/i, '<div class="price">Auf Anfrage</div>');
+    .replace(/ab\s*299\s*€/gi, 'Preis auf Anfrage')
+    .replace(/ab\s*&nbsp;\s*299\s*€/gi, 'Preis auf Anfrage')
+    .replace(/Auf Anfrage/gi, 'Preis auf Anfrage')
+    .replace(/<div class="price">[\s\S]*?<\/div>/i, '<div class="price">Preis auf Anfrage</div>');
 
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(html);
