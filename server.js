@@ -5,6 +5,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import generateHandler from './api/generate.js';
 import inquiryHandler from './api/inquiry.js';
+import uploadImageHandler from './api/upload-image.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -16,20 +17,18 @@ app.use(express.json({ limit: '30mb' }));
 
 app.post('/api/generate', (req, res) => generateHandler(req, res));
 app.post('/api/inquiry', (req, res) => inquiryHandler(req, res));
+app.post('/api/upload-image', (req, res) => uploadImageHandler(req, res));
 
 const RAW_BASE = 'https://raw.githubusercontent.com/dawid00714/custom-taschen-konfigurator-5/main';
 const WHATSAPP_NUMBER = String(process.env.WHATSAPP_NUMBER || '').replace(/\D/g, '');
 
 const inquiryFixScript = `
-<script data-laminimas-whatsapp-fix="1">
+<script data-laminimas-whatsapp-fix="2">
 (function(){
   var WHATSAPP_NUMBER = '${WHATSAPP_NUMBER}';
   function text(id){ var el=document.getElementById(id); return el ? (el.textContent || el.value || '').trim() : ''; }
   function val(id){ var el=document.getElementById(id); return el ? (el.value || '').trim() : ''; }
   function generated(){ var img=document.querySelector('#resultBox img, .resultbox img'); return img ? img.src : ''; }
-  function downloadImage(url){
-    try { var a=document.createElement('a'); a.href=url; a.download='custom-tasche-vorschau.png'; document.body.appendChild(a); a.click(); a.remove(); } catch(e) {}
-  }
   function buildPayload(){
     return {
       bagType:text('sumBag'),
@@ -41,12 +40,21 @@ const inquiryFixScript = `
       generatedImage:generated()
     };
   }
-  function openWhatsApp(payload){
+  async function uploadGeneratedImage(image){
+    var res = await fetch('/api/upload-image', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ image:image })
+    });
+    var data = await res.json().catch(function(){ return {}; });
+    if (!res.ok || !data.imageUrl) throw new Error(data.error || 'Bild-Link konnte nicht erstellt werden.');
+    return data.imageUrl;
+  }
+  function openWhatsApp(payload, imageLink){
     if (!WHATSAPP_NUMBER) {
       alert('WhatsApp-Nummer ist noch nicht in Vercel gesetzt. Bitte Environment Variable WHATSAPP_NUMBER eintragen, z. B. 491701234567.');
       return;
     }
-    if (payload.generatedImage) downloadImage(payload.generatedImage);
     var msg =
       'Neue Custom-Taschen-Anfrage%0A%0A' +
       'Form: ' + encodeURIComponent(payload.bagType || '-') + '%0A' +
@@ -55,10 +63,10 @@ const inquiryFixScript = `
       'Text-Stil: ' + encodeURIComponent(payload.letterStyle || '-') + '%0A' +
       'Text-Position: ' + encodeURIComponent(payload.letterPosition || '-') + '%0A' +
       'Designwunsch: ' + encodeURIComponent(payload.designWish || '-') + '%0A%0A' +
-      'Das generierte Bild wurde heruntergeladen. Bitte bei WhatsApp als Bild mitschicken.';
+      'Bild-Link: ' + encodeURIComponent(imageLink || payload.generatedImage || '-');
     window.open('https://wa.me/' + WHATSAPP_NUMBER + '?text=' + msg, '_blank');
   }
-  function sendInquiry(ev){
+  async function sendInquiry(ev){
     var btn = ev.target && ev.target.closest ? ev.target.closest('#buyBtn') : null;
     if (!btn) return;
     ev.preventDefault();
@@ -66,7 +74,19 @@ const inquiryFixScript = `
     ev.stopImmediatePropagation && ev.stopImmediatePropagation();
     var payload = buildPayload();
     if (!payload.generatedImage) { alert('Bitte erst eine KI-Vorschau generieren.'); return; }
-    openWhatsApp(payload);
+    var old = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Erstelle Bild-Link...';
+    try {
+      var link = await uploadGeneratedImage(payload.generatedImage);
+      openWhatsApp(payload, link);
+    } catch(e) {
+      alert((e && e.message ? e.message : 'Bild-Link konnte nicht erstellt werden.') + '\n\nWhatsApp wird trotzdem mit dem vorhandenen Bild-Link geöffnet.');
+      openWhatsApp(payload, payload.generatedImage);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = old || 'Per WhatsApp anfragen';
+    }
   }
   document.addEventListener('click', sendInquiry, true);
 })();
@@ -86,9 +106,8 @@ function fixHtml(html) {
     .replace(/bag-4\.png/g, `${RAW_BASE}/bag-4.png`)
     .replace(/bag-5\.png/g, `${RAW_BASE}/bag-5.png`);
 
-  if (!html.includes('data-laminimas-whatsapp-fix')) {
-    html = html.replace('</body>', inquiryFixScript + '</body>');
-  }
+  html = html.replace(/<script data-laminimas-whatsapp-fix="[\s\S]*?<\/script>/, '');
+  html = html.replace('</body>', inquiryFixScript + '</body>');
   return html;
 }
 
