@@ -47,6 +47,42 @@ async function callOpenRouter(payload) {
   return data;
 }
 
+function buildPrompt({ bagType, prompt, material, referenceImage, textInstruction }) {
+  return `Create ONE realistic premium leather handbag product photo. Return an actual generated image, not only text.
+
+Bag shape: ${bagType || 'handbag'}
+Material: ${material || 'premium leather'}
+Background: completely pure white seamless studio background.
+Customer wishes: ${prompt || '-'}
+${textInstruction}
+
+Image roles:
+- Image 1 is the strict bag shape / silhouette reference.
+${referenceImage ? '- Image 2 is the PRIMARY surface design and style reference.' : ''}
+
+CRITICAL SHAPE RULES:
+- Preserve the outline, proportions, handle or strap placement and bag type from Image 1.
+- Do not turn the selected silhouette into another bag shape.
+
+${referenceImage ? `CRITICAL STYLE RULES FOR IMAGE 2:
+- Strongly use Image 2 for the final surface design.
+- Copy the color palette, contrast, visible material mood, hardware feeling, stitching/quilting direction, decorative density and layout feeling from Image 2.
+- If Image 2 has a rich all-over pattern, the final handbag MUST also have a rich all-over decorative pattern across most of the visible front surface.
+- Do NOT simplify the handbag into a plain single-color bag when Image 2 has a pattern, print, ornaments, quilting or decorations.
+- Replace any protected logo, monogram, brand letter or trademark from Image 2 with original unbranded ornaments, abstract floral shapes, geometric motifs, crowns, stars, leaves or luxury decorative symbols.
+- The output should clearly feel inspired by the uploaded reference image, while staying completely unbranded.` : `STYLE RULES:
+- Follow the written customer wishes strongly.
+- If a pattern, ornament, quilting or decoration is requested, make it clearly visible across the bag surface.
+- Do not create a plain single-color bag unless the user asks for a plain design.`}
+
+BRAND SAFETY:
+- No watermark.
+- No protected brand logos.
+- No famous monograms.
+- Do not use or imitate Gucci GG, Louis Vuitton LV, Chanel CC, Hermès H, Dior CD, YSL or any other protected brand identity.
+- The bag must look like real leather, not glass, plastic, metal or stone.`;
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   try {
@@ -59,38 +95,19 @@ export default async function handler(req, res) {
       ? `Custom text requested: "${customText}". Text style: ${styleText(letterStyle)}. Text placement: ${positionText(letterPosition)}. Use it as original customer personalization, not as a brand logo.`
       : 'No custom letters or words selected. Do not add letters, initials, logos, or brand-like marks.';
 
-    const promptText = `Create ONE realistic premium leather handbag product photo. Return an actual generated image, not only text.
-
-Bag shape: ${bagType || 'handbag'}
-Material: ${material || 'premium leather'}
-Background: completely pure white seamless studio background.
-Customer wishes: ${prompt || '-'}
-${textInstruction}
-
-Image roles:
-- Image 1 is the strict bag shape / silhouette reference.
-${referenceImage ? '- Image 2 is the style reference: copy color mood, leather finish, stitching, quilting, hardware tone and decorative style.' : ''}
-
-Important:
-- Preserve the outline, proportions, handle or strap placement and bag type from Image 1.
-- Do not turn the selected silhouette into another bag shape.
-- If Image 2 contains logos or brand marks, replace them with original unbranded design.
-- No watermark.
-- No protected brand logos.
-- No famous monograms.
-- The bag must look like real leather, not glass, plastic, metal or stone.`;
+    const promptText = buildPrompt({ bagType, prompt, material, referenceImage, textInstruction });
 
     const content = [{ type:'text', text:promptText }, { type:'image_url', image_url:{ url:silhouetteImage } }];
     if (referenceImage) content.push({ type:'image_url', image_url:{ url:referenceImage } });
 
     const model = process.env.OPENROUTER_MODEL || 'google/gemini-3-pro-image-preview';
-    const payload = { model, messages:[{ role:'user', content }], modalities:['image','text'], image_config:{ aspect_ratio:'1:1', image_size:'1K' }, temperature:0.2, stream:false };
+    const payload = { model, messages:[{ role:'user', content }], modalities:['image','text'], image_config:{ aspect_ratio:'1:1', image_size:'1K' }, temperature:0, top_p:0.8, stream:false };
     let data = await callOpenRouter(payload);
     let imageUrl = extractImageUrl(data);
 
     if (!imageUrl && referenceImage) {
       const retryContent = [
-        { type:'text', text: promptText + '\n\nSecond attempt: output the image now. Use Image 1 as style reference and Image 2 as shape reference.' },
+        { type:'text', text: promptText + '\n\nSecond attempt: output the image now. Use Image 1 as the style reference and Image 2 as the shape reference. The final bag must keep a visible decorative pattern if the style reference has one. Do not output text only.' },
         { type:'image_url', image_url:{ url:referenceImage } },
         { type:'image_url', image_url:{ url:silhouetteImage } }
       ];
