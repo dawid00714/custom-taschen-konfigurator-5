@@ -23,7 +23,7 @@ const RAW_BASE = 'https://raw.githubusercontent.com/dawid00714/custom-taschen-ko
 const WHATSAPP_NUMBER = String(process.env.WHATSAPP_NUMBER || '').replace(/\D/g, '');
 
 const whatsappScript = `
-<script data-laminimas-whatsapp-fix="5">
+<script data-laminimas-whatsapp-fix="8">
 (function(){
   var WHATSAPP_NUMBER = '${WHATSAPP_NUMBER}';
 
@@ -53,10 +53,7 @@ const whatsappScript = `
 
     var data = await res.json().catch(function(){ return {}; });
 
-    if (!res.ok || !data.imageUrl) {
-      throw new Error(data.error || 'Bild-Link konnte nicht erstellt werden.');
-    }
-
+    if (!res.ok || !data.imageUrl) throw new Error(data.error || 'Bild-Link konnte nicht erstellt werden.');
     return data.imageUrl;
   }
 
@@ -75,52 +72,21 @@ const whatsappScript = `
   }
 
   async function clickWhatsApp(e){
-    if (e) {
-      e.preventDefault();
-      e.stopPropagation();
-      if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-    }
-
-    if (!WHATSAPP_NUMBER) {
-      alert('WhatsApp-Nummer fehlt in Vercel: WHATSAPP_NUMBER');
-      return false;
-    }
-
+    if (e) { e.preventDefault(); e.stopPropagation(); if (e.stopImmediatePropagation) e.stopImmediatePropagation(); }
+    if (!WHATSAPP_NUMBER) { alert('WhatsApp-Nummer fehlt in Vercel: WHATSAPP_NUMBER'); return false; }
     var p = payload();
-
-    if (!p.generatedImage) {
-      alert('Bitte erst eine KI-Vorschau generieren.');
-      return false;
-    }
-
-    var btn = byId('buyBtn');
-    var oldText = btn ? btn.textContent : '';
-
-    if (btn) {
-      btn.disabled = true;
-      btn.textContent = 'Erstelle Bild-Link...';
-    }
-
-    try {
-      var link = await uploadImage(p.generatedImage);
-      window.location.href = whatsappUrl(p, link);
-    } catch (err) {
-      alert((err && err.message ? err.message : 'Bild-Link konnte nicht erstellt werden.') + '\n\nWhatsApp wird ohne Bild-Link geöffnet. Speichere die Vorschau und sende das Bild manuell.');
-      window.location.href = whatsappUrl(p, '');
-    } finally {
-      if (btn) {
-        btn.disabled = false;
-        btn.textContent = oldText || 'Per WhatsApp anfragen';
-      }
-    }
-
+    if (!p.generatedImage) { alert('Bitte erst eine KI-Vorschau generieren.'); return false; }
+    var btn = byId('buyBtn'); var oldText = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Erstelle Bild-Link...'; }
+    try { window.location.href = whatsappUrl(p, await uploadImage(p.generatedImage)); }
+    catch (err) { alert((err && err.message ? err.message : 'Bild-Link konnte nicht erstellt werden.') + '\n\nWhatsApp wird ohne Bild-Link geöffnet. Speichere die Vorschau und sende das Bild manuell.'); window.location.href = whatsappUrl(p, ''); }
+    finally { if (btn) { btn.disabled = false; btn.textContent = oldText || 'Per WhatsApp anfragen'; } }
     return false;
   }
 
   function replaceButton(){
     var old = byId('buyBtn');
     if (!old || old.getAttribute('data-wa-fixed') === '1') return;
-
     var clone = old.cloneNode(true);
     clone.id = 'buyBtn';
     clone.setAttribute('data-wa-fixed', '1');
@@ -129,12 +95,28 @@ const whatsappScript = `
     old.parentNode.replaceChild(clone, old);
   }
 
-  document.addEventListener('DOMContentLoaded', replaceButton);
-  document.addEventListener('click', function(e){
-    var btn = e.target && e.target.closest ? e.target.closest('#buyBtn') : null;
-    if (btn && btn.getAttribute('data-wa-fixed') === '1') clickWhatsApp(e);
-  }, true);
-  setInterval(replaceButton, 500);
+  function restoreGenerateFeedback(){
+    var b = byId('generateBtn');
+    if (!b || b.getAttribute('data-loading-fix') === '1') return;
+    b.setAttribute('data-loading-fix','1');
+    var original = b.textContent || 'KI-Vorschau generieren';
+    document.addEventListener('click', function(e){
+      var btn = e.target && e.target.closest ? e.target.closest('#generateBtn') : null;
+      if (!btn) return;
+      setTimeout(function(){ if (btn.disabled) btn.textContent = '⏳ KI-Vorschau wird generiert...'; }, 30);
+    }, true);
+    setInterval(function(){
+      var btn = byId('generateBtn');
+      var status = text('sumStatus');
+      if (!btn) return;
+      if (!btn.disabled && (btn.textContent || '').indexOf('⏳') >= 0) btn.textContent = original;
+      if (status === 'Vorschau erstellt' || status === 'Fehler') { if (!btn.disabled) btn.textContent = original; }
+    }, 300);
+  }
+
+  document.addEventListener('DOMContentLoaded', function(){ replaceButton(); restoreGenerateFeedback(); });
+  document.addEventListener('click', function(e){ var btn = e.target && e.target.closest ? e.target.closest('#buyBtn') : null; if (btn && btn.getAttribute('data-wa-fixed') === '1') clickWhatsApp(e); }, true);
+  setInterval(function(){ replaceButton(); restoreGenerateFeedback(); }, 500);
 })();
 </script>
 `;
@@ -166,20 +148,8 @@ function sendIndex(req, res) {
 
 app.get('/', sendIndex);
 app.get('/index.html', sendIndex);
-
 app.use(express.static(__dirname, { maxAge: 0 }));
+app.get('*', (req, res) => req.path.startsWith('/api/') ? res.status(404).json({ error: 'API route not found' }) : sendIndex(req, res));
 
-app.get('*', (req, res) => {
-  if (req.path.startsWith('/api/')) {
-    return res.status(404).json({ error: 'API route not found' });
-  }
-  sendIndex(req, res);
-});
-
-if (!process.env.VERCEL) {
-  app.listen(port, () => {
-    console.log(`Laminimas Custom Taschen Designer läuft auf http://localhost:${port}`);
-  });
-}
-
+if (!process.env.VERCEL) app.listen(port, () => console.log(`Laminimas Custom Taschen Designer läuft auf http://localhost:${port}`));
 export default app;
