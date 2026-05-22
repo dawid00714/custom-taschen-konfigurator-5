@@ -5,34 +5,35 @@ export default async function handler(req, res) {
     const { image } = req.body || {};
     if (!image) return res.status(400).json({ error: 'Kein Bild empfangen.' });
 
-    const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
-    const uploadPreset = process.env.CLOUDINARY_UPLOAD_PRESET;
+    const cloudName = (process.env.CLOUDINARY_CLOUD_NAME || 'da5yesq5l').trim();
+    const envPreset = (process.env.CLOUDINARY_UPLOAD_PRESET || '').trim();
+    const presets = [...new Set([envPreset, 'Laminimas-custom-Bags', 'laminimas_unsigned'].filter(Boolean))];
 
-    if (!cloudName || !uploadPreset) {
-      return res.status(500).json({
-        error: 'Cloudinary ist noch nicht eingerichtet. Fehlende ENV: CLOUDINARY_CLOUD_NAME oder CLOUDINARY_UPLOAD_PRESET.'
+    let lastError = 'Bild konnte nicht zu Cloudinary hochgeladen werden.';
+
+    for (const uploadPreset of presets) {
+      const form = new FormData();
+      form.append('file', image);
+      form.append('upload_preset', uploadPreset);
+      form.append('folder', 'laminimas-custom-taschen');
+
+      const response = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
+        method: 'POST',
+        body: form
       });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (response.ok && data.secure_url) {
+        return res.status(200).json({ imageUrl: data.secure_url, presetUsed: uploadPreset });
+      }
+
+      lastError = data.error?.message || lastError;
     }
 
-    const form = new FormData();
-    form.append('file', image);
-    form.append('upload_preset', uploadPreset);
-    form.append('folder', 'laminimas-custom-taschen');
-
-    const response = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
-      method: 'POST',
-      body: form
+    return res.status(500).json({
+      error: lastError + ' Prüfe in Cloudinary, ob der Upload Preset wirklich Unsigned ist.'
     });
-
-    const data = await response.json().catch(() => ({}));
-
-    if (!response.ok || !data.secure_url) {
-      return res.status(response.status || 500).json({
-        error: data.error?.message || 'Bild konnte nicht zu Cloudinary hochgeladen werden.'
-      });
-    }
-
-    return res.status(200).json({ imageUrl: data.secure_url });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ error: error.message || 'Upload fehlgeschlagen.' });
