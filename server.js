@@ -23,7 +23,7 @@ const RAW_BASE = 'https://raw.githubusercontent.com/dawid00714/custom-taschen-ko
 const WHATSAPP_NUMBER = String(process.env.WHATSAPP_NUMBER || '').replace(/\D/g, '');
 
 const inquiryFixScript = `
-<script data-laminimas-whatsapp-fix="2">
+<script data-laminimas-whatsapp-fix="3">
 (function(){
   var WHATSAPP_NUMBER = '${WHATSAPP_NUMBER}';
   function text(id){ var el=document.getElementById(id); return el ? (el.textContent || el.value || '').trim() : ''; }
@@ -50,21 +50,31 @@ const inquiryFixScript = `
     if (!res.ok || !data.imageUrl) throw new Error(data.error || 'Bild-Link konnte nicht erstellt werden.');
     return data.imageUrl;
   }
-  function openWhatsApp(payload, imageLink){
-    if (!WHATSAPP_NUMBER) {
-      alert('WhatsApp-Nummer ist noch nicht in Vercel gesetzt. Bitte Environment Variable WHATSAPP_NUMBER eintragen, z. B. 491701234567.');
-      return;
-    }
+  function makeWhatsAppUrl(payload, imageLink){
     var msg =
-      'Neue Custom-Taschen-Anfrage%0A%0A' +
-      'Form: ' + encodeURIComponent(payload.bagType || '-') + '%0A' +
-      'Material: ' + encodeURIComponent(payload.material || '-') + '%0A' +
-      'Buchstaben/Wörter: ' + encodeURIComponent(payload.customText || '-') + '%0A' +
-      'Text-Stil: ' + encodeURIComponent(payload.letterStyle || '-') + '%0A' +
-      'Text-Position: ' + encodeURIComponent(payload.letterPosition || '-') + '%0A' +
-      'Designwunsch: ' + encodeURIComponent(payload.designWish || '-') + '%0A%0A' +
-      'Bild-Link: ' + encodeURIComponent(imageLink || payload.generatedImage || '-');
-    window.open('https://wa.me/' + WHATSAPP_NUMBER + '?text=' + msg, '_blank');
+      'Neue Custom-Taschen-Anfrage\n\n' +
+      'Form: ' + (payload.bagType || '-') + '\n' +
+      'Material: ' + (payload.material || '-') + '\n' +
+      'Buchstaben/Wörter: ' + (payload.customText || '-') + '\n' +
+      'Text-Stil: ' + (payload.letterStyle || '-') + '\n' +
+      'Text-Position: ' + (payload.letterPosition || '-') + '\n' +
+      'Designwunsch: ' + (payload.designWish || '-') + '\n\n' +
+      'Bild-Link: ' + (imageLink || payload.generatedImage || '-');
+    return 'https://wa.me/' + WHATSAPP_NUMBER + '?text=' + encodeURIComponent(msg);
+  }
+  function openWhatsApp(url){
+    var a = document.getElementById('laminimasWhatsappLink');
+    if (!a) {
+      a = document.createElement('a');
+      a.id = 'laminimasWhatsappLink';
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.style.display = 'none';
+      document.body.appendChild(a);
+    }
+    a.href = url;
+    a.click();
+    setTimeout(function(){ window.location.href = url; }, 350);
   }
   async function sendInquiry(ev){
     var btn = ev.target && ev.target.closest ? ev.target.closest('#buyBtn') : null;
@@ -72,6 +82,7 @@ const inquiryFixScript = `
     ev.preventDefault();
     ev.stopPropagation();
     ev.stopImmediatePropagation && ev.stopImmediatePropagation();
+    if (!WHATSAPP_NUMBER) { alert('WhatsApp-Nummer fehlt in Vercel: WHATSAPP_NUMBER'); return; }
     var payload = buildPayload();
     if (!payload.generatedImage) { alert('Bitte erst eine KI-Vorschau generieren.'); return; }
     var old = btn.textContent;
@@ -79,10 +90,10 @@ const inquiryFixScript = `
     btn.textContent = 'Erstelle Bild-Link...';
     try {
       var link = await uploadGeneratedImage(payload.generatedImage);
-      openWhatsApp(payload, link);
+      openWhatsApp(makeWhatsAppUrl(payload, link));
     } catch(e) {
-      alert((e && e.message ? e.message : 'Bild-Link konnte nicht erstellt werden.') + '\n\nWhatsApp wird trotzdem mit dem vorhandenen Bild-Link geöffnet.');
-      openWhatsApp(payload, payload.generatedImage);
+      alert((e && e.message ? e.message : 'Bild-Link konnte nicht erstellt werden.') + '\n\nWhatsApp wird trotzdem geöffnet.');
+      openWhatsApp(makeWhatsAppUrl(payload, payload.generatedImage));
     } finally {
       btn.disabled = false;
       btn.textContent = old || 'Per WhatsApp anfragen';
