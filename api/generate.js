@@ -1,157 +1,107 @@
-// Vercel / Node serverless endpoint: /api/generate
-// Wichtig: API-Key NICHT hier eintragen. In Vercel oder lokal in .env speichern.
-
 function extractImageUrl(data) {
-  const message = data?.choices?.[0]?.message;
-  return (
-    message?.images?.[0]?.image_url?.url ||
-    message?.images?.[0]?.imageUrl?.url ||
-    message?.content?.find?.((p) => p?.type === 'image_url')?.image_url?.url ||
-    null
-  );
+  const msg = data?.choices?.[0]?.message || {};
+  const direct = msg?.images?.[0]?.image_url?.url || msg?.images?.[0]?.url || data?.images?.[0]?.url;
+  if (direct) return direct;
+  const content = msg?.content;
+  if (Array.isArray(content)) {
+    for (const p of content) {
+      const u = p?.image_url?.url || p?.url || p?.image?.url;
+      if (u) return u;
+      if (p?.image_base64) return `data:image/png;base64,${p.image_base64}`;
+    }
+  }
+  if (typeof content === 'string') {
+    const dataUrl = content.match(/data:image\/(?:png|jpeg|jpg|webp);base64,[A-Za-z0-9+/=]+/);
+    if (dataUrl) return dataUrl[0];
+    const url = content.match(/https?:\/\/\S+?\.(?:png|jpg|jpeg|webp)(?:\?\S*)?/i);
+    if (url) return url[0];
+  }
+  return null;
 }
 
-const blockedMarks = ['GG', 'LV', 'CC', 'H', 'YSL', 'CD', 'GUCCI', 'LOUIS VUITTON', 'VUITTON', 'CHANEL', 'HERMES', 'HERMÈS', 'DIOR'];
+const blockedMarks = ['GG', 'LV', 'CC', 'YSL', 'CD', 'GUCCI', 'VUITTON', 'CHANEL', 'HERMES', 'HERMÈS', 'DIOR'];
 function cleanCustomText(value = '') {
-  const cleaned = String(value)
-    .replace(/[^A-Za-zÀ-ž0-9 &+_.-]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 24);
-
+  const cleaned = String(value).replace(/[^A-Za-zÀ-ž0-9 &+_.-]/g, '').replace(/\s+/g, ' ').trim().slice(0, 24);
   const normalized = cleaned.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  const blocked = blockedMarks.some(mark => {
-    const n = mark.replace(/[^A-Z0-9]/g, '');
-    return normalized === n || normalized.includes(n);
-  });
-
-  return blocked ? '' : cleaned;
+  return blockedMarks.some(m => normalized === m || normalized.includes(m)) ? '' : cleaned;
 }
-
 function styleText(value) {
-  return ({
-    none: 'no letters or words',
-    gold: 'gold metal letters attached to the leather',
-    silver: 'silver metal letters attached to the leather',
-    engraved: 'engraved or embossed directly into the leather, tone-on-tone'
-  })[value] || 'no letters or words';
+  return ({ none:'no letters or words', gold:'gold metal letters attached to the leather', silver:'silver metal letters attached to the leather', engraved:'engraved or embossed directly into the leather, tone-on-tone' })[value] || 'no letters or words';
 }
-
 function positionText(value) {
-  return ({
-    bottom_center: 'bottom center of the front panel',
-    center: 'center of the front panel',
-    top_center: 'top center of the front panel, below the handle or on the flap if suitable'
-  })[value] || 'bottom center of the front panel';
+  return ({ bottom_center:'bottom center of the front panel', center:'center of the front panel', top_center:'top center of the front panel' })[value] || 'bottom center of the front panel';
+}
+async function callOpenRouter(payload) {
+  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': process.env.SITE_URL || 'https://laminimas.com',
+      'X-OpenRouter-Title': 'Laminimas Custom Taschen Designer'
+    },
+    body: JSON.stringify(payload)
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data?.error?.message || data?.message || `OpenRouter Fehler ${response.status}`);
+  return data;
 }
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-
   try {
     const { bagType, silhouetteImage, prompt, material, referenceImage, letterStyle, letterPosition } = req.body || {};
     const customText = cleanCustomText(req.body?.customText);
-
-    if (!process.env.OPENROUTER_API_KEY) {
-      return res.status(500).json({ error: 'OPENROUTER_API_KEY fehlt. Lege lokal eine .env an oder trage die Variable bei Vercel ein.' });
-    }
-    if (!silhouetteImage) {
-      return res.status(400).json({ error: 'Keine Taschen-Silhouette empfangen.' });
-    }
+    if (!process.env.OPENROUTER_API_KEY) return res.status(500).json({ error: 'OPENROUTER_API_KEY fehlt.' });
+    if (!silhouetteImage) return res.status(400).json({ error: 'Keine Taschen-Silhouette empfangen.' });
 
     const textInstruction = customText
-      ? `Custom text requested: "${customText}". Text style: ${styleText(letterStyle)}. Text placement: ${positionText(letterPosition)}. Use the text as original customer personalization only. Do not imitate any brand logo, trademark, or known monogram style.`
-      : 'No custom letters or words selected. Do not add any letters, initials, logos, or brand-like marks.';
+      ? `Custom text requested: "${customText}". Text style: ${styleText(letterStyle)}. Text placement: ${positionText(letterPosition)}. Use it as original customer personalization, not as a brand logo.`
+      : 'No custom letters or words selected. Do not add letters, initials, logos, or brand-like marks.';
 
-    const styleReferenceBlock = referenceImage
-      ? `
-STYLE REFERENCE PRIORITY:
-- Image 2 is the main STYLE reference.
-- Copy the visible aesthetic language from Image 2 as closely as possible: dominant color, leather finish, quilting or stitching direction, hardware color, glamour level, feminine/barbiecore mood, and overall luxury fashion feeling.
-- Keep ONLY the style from Image 2, but DO NOT copy any brand logo, monogram, trademark symbol, or copyrighted brand mark visible in Image 2.
-- If Image 2 shows a logo area, replace it with clean unbranded design or the requested custom text.
-- Keep the background pure white even if Image 2 shows a colored or fluffy background.
-`
-      : `
-No external style image was uploaded. Use the text description only.
-`;
+    const promptText = `Create ONE realistic premium leather handbag product photo. Return an actual generated image, not only text.
 
-    const content = [
-      {
-        type: 'text',
-        text:
-`Create a realistic luxury product image of a custom handbag.
-Selected bag shape: ${bagType || 'handbag'}.
-Material: ${material || 'premium leather'}.
+Bag shape: ${bagType || 'handbag'}
+Material: ${material || 'premium leather'}
 Background: completely pure white seamless studio background.
-Customer wishes: ${prompt || 'If a style reference image is uploaded, follow it closely.'}
+Customer wishes: ${prompt || '-'}
 ${textInstruction}
 
-IMAGE ROLES:
-- Image 1 = black silhouette shape reference.
-${referenceImage ? '- Image 2 = handbag style reference.' : ''}
+Image roles:
+- Image 1 is the strict bag shape / silhouette reference.
+${referenceImage ? '- Image 2 is the style reference: copy color mood, leather finish, stitching, quilting, hardware tone and decorative style.' : ''}
 
-CRITICAL SHAPE RULES:
-- The uploaded black silhouette is the main shape constraint.
-- Preserve the exact overall silhouette, proportions, body outline, handle or strap placement, flap structure, and bag type from Image 1.
-- Do not change the silhouette into a different bag type.
-- Use the silhouette as a strict mask-like form reference, then add realistic leather texture and design details inside that form.
-${styleReferenceBlock}
-MATERIAL AND OUTPUT RULES:
-- The final product must clearly look like a real leather handbag, not glass, resin, plastic, metal, or stone.
-- The bag must look like a premium product photo.
-- Use a clean pure white studio background only.
+Important:
+- Preserve the outline, proportions, handle or strap placement and bag type from Image 1.
+- Do not turn the selected silhouette into another bag shape.
+- If Image 2 contains logos or brand marks, replace them with original unbranded design.
 - No watermark.
-- Do NOT generate trademark logos, brand signs, or famous monograms.
-- Do NOT use or imitate Gucci GG, Louis Vuitton LV, Chanel CC, Hermès H, Dior CD, YSL, or any other protected brand identity.
-- If custom text is requested, make it original, plain, and unbranded, using the selected style and position.
-- When a style reference image is present, prioritize matching its style strongly while still obeying the silhouette from Image 1.`
-      },
-      { type: 'image_url', image_url: { url: silhouetteImage } }
-    ];
+- No protected brand logos.
+- No famous monograms.
+- The bag must look like real leather, not glass, plastic, metal or stone.`;
 
-    if (referenceImage) content.push({ type: 'image_url', image_url: { url: referenceImage } });
+    const content = [{ type:'text', text:promptText }, { type:'image_url', image_url:{ url:silhouetteImage } }];
+    if (referenceImage) content.push({ type:'image_url', image_url:{ url:referenceImage } });
 
-    const payload = {
-      model: process.env.OPENROUTER_MODEL || 'google/gemini-2.5-flash-image',
-      messages: [{ role: 'user', content }],
-      modalities: ['image', 'text'],
-      image_config: { aspect_ratio: '1:1', image_size: '1K' },
-      temperature: 0.2,
-      stream: false
-    };
+    const model = process.env.OPENROUTER_MODEL || 'google/gemini-3-pro-image-preview';
+    const payload = { model, messages:[{ role:'user', content }], modalities:['image','text'], image_config:{ aspect_ratio:'1:1', image_size:'1K' }, temperature:0.2, stream:false };
+    let data = await callOpenRouter(payload);
+    let imageUrl = extractImageUrl(data);
 
-    const openRouterResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': process.env.SITE_URL || 'https://laminimas.com',
-        'X-OpenRouter-Title': 'Laminimas Custom Taschen Designer'
-      },
-      body: JSON.stringify(payload)
-    });
-
-    const data = await openRouterResponse.json().catch(() => ({}));
-
-    if (!openRouterResponse.ok) {
-      return res.status(openRouterResponse.status).json({
-        error: data?.error?.message || data?.message || JSON.stringify(data) || `OpenRouter Fehler ${openRouterResponse.status}`
-      });
+    if (!imageUrl && referenceImage) {
+      const retryContent = [
+        { type:'text', text: promptText + '\n\nSecond attempt: output the image now. Use Image 1 as style reference and Image 2 as shape reference.' },
+        { type:'image_url', image_url:{ url:referenceImage } },
+        { type:'image_url', image_url:{ url:silhouetteImage } }
+      ];
+      data = await callOpenRouter({ ...payload, messages:[{ role:'user', content:retryContent }] });
+      imageUrl = extractImageUrl(data);
     }
 
-    const imageUrl = extractImageUrl(data);
-
-    if (!imageUrl) {
-      return res.status(500).json({
-        error: 'OpenRouter hat kein Bild zurückgegeben. Prüfe, ob dein Modell Image-Output unterstützt und modalities korrekt sind.',
-        raw: data
-      });
-    }
-
+    if (!imageUrl) return res.status(500).json({ error: `OpenRouter hat kein Bild zurückgegeben. Modell: ${model}. Referenzbild eventuell zu groß oder Modell antwortet bei zwei Bildern nur mit Text.` });
     return res.status(200).json({ imageUrl });
   } catch (error) {
-    console.error(error);
+    console.error('generate error:', error);
     return res.status(500).json({ error: error.message || 'Unbekannter Serverfehler' });
   }
 }
