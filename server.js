@@ -23,7 +23,7 @@ const RAW_BASE = 'https://raw.githubusercontent.com/dawid00714/custom-taschen-ko
 const WHATSAPP_NUMBER = String(process.env.WHATSAPP_NUMBER || '').replace(/\D/g, '');
 
 const whatsappScript = `
-<script data-laminimas-whatsapp-fix="4">
+<script data-laminimas-whatsapp-fix="5">
 (function(){
   var WHATSAPP_NUMBER = '${WHATSAPP_NUMBER}';
 
@@ -60,16 +60,16 @@ const whatsappScript = `
     return data.imageUrl;
   }
 
-  function whatsappUrl(p, link){
+  function whatsappUrl(p, imageLink){
     var msg =
-      'Neue Custom-Taschen-Anfrage\\n\\n' +
-      'Form: ' + (p.bagType || '-') + '\\n' +
-      'Material: ' + (p.material || '-') + '\\n' +
-      'Buchstaben/Wörter: ' + (p.customText || '-') + '\\n' +
-      'Text-Stil: ' + (p.letterStyle || '-') + '\\n' +
-      'Text-Position: ' + (p.letterPosition || '-') + '\\n' +
-      'Designwunsch: ' + (p.designWish || '-') + '\\n\\n' +
-      'Bild-Link: ' + (link || p.generatedImage || '-');
+      'Neue Custom-Taschen-Anfrage\n\n' +
+      'Form: ' + (p.bagType || '-') + '\n' +
+      'Material: ' + (p.material || '-') + '\n' +
+      'Buchstaben/Wörter: ' + (p.customText || '-') + '\n' +
+      'Text-Stil: ' + (p.letterStyle || '-') + '\n' +
+      'Text-Position: ' + (p.letterPosition || '-') + '\n' +
+      'Designwunsch: ' + (p.designWish || '-') + '\n\n' +
+      'Bild-Link: ' + (imageLink || 'Cloudinary Upload fehlgeschlagen. Bitte Vorschau speichern und manuell schicken.');
 
     return 'https://wa.me/' + WHATSAPP_NUMBER + '?text=' + encodeURIComponent(msg);
   }
@@ -105,8 +105,8 @@ const whatsappScript = `
       var link = await uploadImage(p.generatedImage);
       window.location.href = whatsappUrl(p, link);
     } catch (err) {
-      alert((err && err.message ? err.message : 'Bild-Link konnte nicht erstellt werden.') + '\\n\\nWhatsApp wird trotzdem geöffnet.');
-      window.location.href = whatsappUrl(p, p.generatedImage);
+      alert((err && err.message ? err.message : 'Bild-Link konnte nicht erstellt werden.') + '\n\nWhatsApp wird ohne Bild-Link geöffnet. Speichere die Vorschau und sende das Bild manuell.');
+      window.location.href = whatsappUrl(p, '');
     } finally {
       if (btn) {
         btn.disabled = false;
@@ -119,7 +119,6 @@ const whatsappScript = `
 
   function replaceButton(){
     var old = byId('buyBtn');
-
     if (!old || old.getAttribute('data-wa-fixed') === '1') return;
 
     var clone = old.cloneNode(true);
@@ -127,17 +126,14 @@ const whatsappScript = `
     clone.setAttribute('data-wa-fixed', '1');
     clone.textContent = 'Per WhatsApp anfragen';
     clone.onclick = clickWhatsApp;
-
     old.parentNode.replaceChild(clone, old);
   }
 
   document.addEventListener('DOMContentLoaded', replaceButton);
-
   document.addEventListener('click', function(e){
     var btn = e.target && e.target.closest ? e.target.closest('#buyBtn') : null;
     if (btn && btn.getAttribute('data-wa-fixed') === '1') clickWhatsApp(e);
   }, true);
-
   setInterval(replaceButton, 500);
 })();
 </script>
