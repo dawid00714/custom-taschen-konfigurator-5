@@ -22,84 +22,123 @@ app.post('/api/upload-image', (req, res) => uploadImageHandler(req, res));
 const RAW_BASE = 'https://raw.githubusercontent.com/dawid00714/custom-taschen-konfigurator-5/main';
 const WHATSAPP_NUMBER = String(process.env.WHATSAPP_NUMBER || '').replace(/\D/g, '');
 
-const inquiryFixScript = `
-<script data-laminimas-whatsapp-fix="3">
+const whatsappScript = `
+<script data-laminimas-whatsapp-fix="4">
 (function(){
   var WHATSAPP_NUMBER = '${WHATSAPP_NUMBER}';
-  function text(id){ var el=document.getElementById(id); return el ? (el.textContent || el.value || '').trim() : ''; }
-  function val(id){ var el=document.getElementById(id); return el ? (el.value || '').trim() : ''; }
-  function generated(){ var img=document.querySelector('#resultBox img, .resultbox img'); return img ? img.src : ''; }
-  function buildPayload(){
+
+  function byId(id){ return document.getElementById(id); }
+  function text(id){ var el = byId(id); return el ? (el.textContent || el.value || '').trim() : ''; }
+  function val(id){ var el = byId(id); return el ? (el.value || '').trim() : ''; }
+  function generated(){ var img = document.querySelector('#resultBox img, .resultbox img'); return img ? img.src : ''; }
+
+  function payload(){
     return {
-      bagType:text('sumBag'),
-      material:text('sumMaterial'),
-      customText:val('customText') || text('sumText'),
-      letterStyle:val('letterStyle') || text('sumLetterStyle'),
-      letterPosition:val('letterPosition') || text('sumLetterPosition'),
-      designWish:val('prompt'),
-      generatedImage:generated()
+      bagType: text('sumBag'),
+      material: text('sumMaterial'),
+      customText: val('customText') || text('sumText'),
+      letterStyle: val('letterStyle') || text('sumLetterStyle'),
+      letterPosition: val('letterPosition') || text('sumLetterPosition'),
+      designWish: val('prompt'),
+      generatedImage: generated()
     };
   }
-  async function uploadGeneratedImage(image){
+
+  async function uploadImage(image){
     var res = await fetch('/api/upload-image', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ image:image })
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: image })
     });
+
     var data = await res.json().catch(function(){ return {}; });
-    if (!res.ok || !data.imageUrl) throw new Error(data.error || 'Bild-Link konnte nicht erstellt werden.');
+
+    if (!res.ok || !data.imageUrl) {
+      throw new Error(data.error || 'Bild-Link konnte nicht erstellt werden.');
+    }
+
     return data.imageUrl;
   }
-  function makeWhatsAppUrl(payload, imageLink){
+
+  function whatsappUrl(p, link){
     var msg =
-      'Neue Custom-Taschen-Anfrage\n\n' +
-      'Form: ' + (payload.bagType || '-') + '\n' +
-      'Material: ' + (payload.material || '-') + '\n' +
-      'Buchstaben/Wörter: ' + (payload.customText || '-') + '\n' +
-      'Text-Stil: ' + (payload.letterStyle || '-') + '\n' +
-      'Text-Position: ' + (payload.letterPosition || '-') + '\n' +
-      'Designwunsch: ' + (payload.designWish || '-') + '\n\n' +
-      'Bild-Link: ' + (imageLink || payload.generatedImage || '-');
+      'Neue Custom-Taschen-Anfrage\\n\\n' +
+      'Form: ' + (p.bagType || '-') + '\\n' +
+      'Material: ' + (p.material || '-') + '\\n' +
+      'Buchstaben/Wörter: ' + (p.customText || '-') + '\\n' +
+      'Text-Stil: ' + (p.letterStyle || '-') + '\\n' +
+      'Text-Position: ' + (p.letterPosition || '-') + '\\n' +
+      'Designwunsch: ' + (p.designWish || '-') + '\\n\\n' +
+      'Bild-Link: ' + (link || p.generatedImage || '-');
+
     return 'https://wa.me/' + WHATSAPP_NUMBER + '?text=' + encodeURIComponent(msg);
   }
-  function openWhatsApp(url){
-    var a = document.getElementById('laminimasWhatsappLink');
-    if (!a) {
-      a = document.createElement('a');
-      a.id = 'laminimasWhatsappLink';
-      a.target = '_blank';
-      a.rel = 'noopener';
-      a.style.display = 'none';
-      document.body.appendChild(a);
+
+  async function clickWhatsApp(e){
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.stopImmediatePropagation) e.stopImmediatePropagation();
     }
-    a.href = url;
-    a.click();
-    setTimeout(function(){ window.location.href = url; }, 350);
-  }
-  async function sendInquiry(ev){
-    var btn = ev.target && ev.target.closest ? ev.target.closest('#buyBtn') : null;
-    if (!btn) return;
-    ev.preventDefault();
-    ev.stopPropagation();
-    ev.stopImmediatePropagation && ev.stopImmediatePropagation();
-    if (!WHATSAPP_NUMBER) { alert('WhatsApp-Nummer fehlt in Vercel: WHATSAPP_NUMBER'); return; }
-    var payload = buildPayload();
-    if (!payload.generatedImage) { alert('Bitte erst eine KI-Vorschau generieren.'); return; }
-    var old = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = 'Erstelle Bild-Link...';
+
+    if (!WHATSAPP_NUMBER) {
+      alert('WhatsApp-Nummer fehlt in Vercel: WHATSAPP_NUMBER');
+      return false;
+    }
+
+    var p = payload();
+
+    if (!p.generatedImage) {
+      alert('Bitte erst eine KI-Vorschau generieren.');
+      return false;
+    }
+
+    var btn = byId('buyBtn');
+    var oldText = btn ? btn.textContent : '';
+
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Erstelle Bild-Link...';
+    }
+
     try {
-      var link = await uploadGeneratedImage(payload.generatedImage);
-      openWhatsApp(makeWhatsAppUrl(payload, link));
-    } catch(e) {
-      alert((e && e.message ? e.message : 'Bild-Link konnte nicht erstellt werden.') + '\n\nWhatsApp wird trotzdem geöffnet.');
-      openWhatsApp(makeWhatsAppUrl(payload, payload.generatedImage));
+      var link = await uploadImage(p.generatedImage);
+      window.location.href = whatsappUrl(p, link);
+    } catch (err) {
+      alert((err && err.message ? err.message : 'Bild-Link konnte nicht erstellt werden.') + '\\n\\nWhatsApp wird trotzdem geöffnet.');
+      window.location.href = whatsappUrl(p, p.generatedImage);
     } finally {
-      btn.disabled = false;
-      btn.textContent = old || 'Per WhatsApp anfragen';
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = oldText || 'Per WhatsApp anfragen';
+      }
     }
+
+    return false;
   }
-  document.addEventListener('click', sendInquiry, true);
+
+  function replaceButton(){
+    var old = byId('buyBtn');
+
+    if (!old || old.getAttribute('data-wa-fixed') === '1') return;
+
+    var clone = old.cloneNode(true);
+    clone.id = 'buyBtn';
+    clone.setAttribute('data-wa-fixed', '1');
+    clone.textContent = 'Per WhatsApp anfragen';
+    clone.onclick = clickWhatsApp;
+
+    old.parentNode.replaceChild(clone, old);
+  }
+
+  document.addEventListener('DOMContentLoaded', replaceButton);
+
+  document.addEventListener('click', function(e){
+    var btn = e.target && e.target.closest ? e.target.closest('#buyBtn') : null;
+    if (btn && btn.getAttribute('data-wa-fixed') === '1') clickWhatsApp(e);
+  }, true);
+
+  setInterval(replaceButton, 500);
 })();
 </script>
 `;
@@ -117,14 +156,13 @@ function fixHtml(html) {
     .replace(/bag-4\.png/g, `${RAW_BASE}/bag-4.png`)
     .replace(/bag-5\.png/g, `${RAW_BASE}/bag-5.png`);
 
-  html = html.replace(/<script data-laminimas-whatsapp-fix="[\s\S]*?<\/script>/, '');
-  html = html.replace('</body>', inquiryFixScript + '</body>');
+  html = html.replace(/<script data-laminimas-whatsapp-fix="[\s\S]*?<\/script>/g, '');
+  html = html.replace('</body>', whatsappScript + '</body>');
   return html;
 }
 
 function sendIndex(req, res) {
-  const filePath = path.join(__dirname, 'index.html');
-  const html = fixHtml(fs.readFileSync(filePath, 'utf8'));
+  const html = fixHtml(fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8'));
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.setHeader('Cache-Control', 'no-store, max-age=0');
   res.send(html);
